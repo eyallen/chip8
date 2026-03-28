@@ -29,5 +29,6 @@ fn main() {
         let opcode = chip8.decode(raw);
         chip8.execute(opcode);
         render(chip8.display());
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
