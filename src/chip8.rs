@@ -14,12 +14,18 @@ pub struct Chip8 {
 
 #[derive(Debug, PartialEq)]
 pub enum Opcode {
-    ClearScreen,
-    Jump(u16),
-    SetRegister(u8,u8),
-    Add(u8,u8),
-    SetIndexRegister(u16),
-    Draw(u8,u8,u8),
+    ClearScreen, // 0x00E0
+    Return, // 0x00EE
+    Jump(u16), // 0x1NNN
+    Call(u16), // 0x2NNN
+    SkipCondRegEqual(u8,u8), // 0x3XNN
+    SkipCondRegNEqual(u8,u8), //0x4XNN
+    SkipCondEqual(u8,u8), // 0x5XY0
+    SetRegister(u8,u8), // 0x6XNN
+    Add(u8,u8), // 0x7XNN
+    SkipCondNEqual(u8,u8), // 0x9XY0
+    SetIndexRegister(u16), // 0xANNN
+    Draw(u8,u8,u8), // 0xDXYN
     // TODO: All the rest
 }
 
@@ -74,7 +80,7 @@ impl Chip8 {
         let low = self.memory[self.pc as usize + 1];
         let opcode = (high as u16) << 8 | low as u16;
 
-        self.pc = self.pc + 2;
+        self.pc += 2;
 
         opcode
     }
@@ -85,13 +91,23 @@ impl Chip8 {
         // TODO: These are wrong - we need the full opcode
         // This is just to get the initial test ROM working
         match first_nibble {
-            0x0 => Opcode::ClearScreen,
+            0x0 => match raw & 0x00FF {
+                0xE0 => Opcode::ClearScreen,
+                0xEE => Opcode::Return,
+                _ => todo!()
+            },
             0x1 => Opcode::Jump(raw & 0x0FFF),
+            0x2 => Opcode::Call(raw & 0x0FFF),
+            0x3 => Opcode::SkipCondRegEqual(((raw & 0x0F00) >> 8) as u8, (raw & 0x00FF) as u8),
+            0x4 => Opcode::SkipCondRegNEqual(((raw & 0x0F00) >> 8) as u8, (raw & 0x00FF) as u8),
+            0x5 => Opcode::SkipCondEqual(((raw & 0x0F00) >> 8) as u8, ((raw & 0x00F0) >> 4) as u8),
             0x6 => Opcode::SetRegister(((raw & 0x0F00) >> 8) as u8, (raw & 0x00FF) as u8),
             0x7 => Opcode::Add(((raw & 0x0F00) >> 8) as u8, (raw & 0x00FF) as u8),
+            0x9 => Opcode::SkipCondNEqual(((raw & 0x0F00) >> 8) as u8, ((raw & 0x00F0) >> 4) as u8),
             0xA => Opcode::SetIndexRegister(raw & 0x0FFF),
             0xD => Opcode::Draw(((raw & 0x0F00) >> 8) as u8, ((raw & 0x00F0) >> 4) as u8, (raw & 0x000F) as u8),
-            _ => Opcode::ClearScreen // TODO
+
+            _ => todo!()
         }
     }
 
@@ -102,9 +118,15 @@ impl Chip8 {
     pub fn execute(&mut self, opcode: Opcode) {
         match opcode {
             Opcode::ClearScreen => self.clear_screen(),
+            Opcode::Return => self.ret_subroutine(),
             Opcode::Jump(addr) => self.jump(addr),
+            Opcode::Call(addr) => self.call_subroutine(addr),
+            Opcode::SkipCondRegEqual(x, nn) => self.skip_if_reg_eq(x, nn),
+            Opcode::SkipCondRegNEqual(x, nn) => self.skip_if_reg_neq(x, nn),
+            Opcode::SkipCondEqual(x, y) => self.skip_if_eq(x, y),
             Opcode::SetRegister(x, nn) => self.set_register(x, nn),
             Opcode::Add(x, nn) => self.add(x, nn),
+            Opcode::SkipCondNEqual(x, y) => self.skip_if_neq(x, y),
             Opcode::SetIndexRegister(addr) => self.set_index_register(addr),
             Opcode::Draw(x, y, n) => self.draw(x, y, n),
         }
@@ -114,12 +136,47 @@ impl Chip8 {
         self.display = [[false;64]; 32];
     }
 
+    fn ret_subroutine(&mut self) {
+        self.sp -= 1;
+        self.pc = self.stack[self.sp as usize];
+    }
+
     fn jump(&mut self, addr: u16) {
         self.pc = addr;
     }
 
+    fn call_subroutine(&mut self, addr: u16) {
+        self.stack[self.sp as usize] = self.pc;
+        self.sp += 1;
+        self.pc = addr;
+    }
+
+    fn skip_if_reg_eq(&mut self, x: u8, nn: u8) {
+        if self.registers[x as usize] == nn {
+            self.pc += 2;
+        }
+    }
+
+    fn skip_if_reg_neq(&mut self, x: u8, nn: u8) {
+        if self.registers[x as usize] != nn {
+            self.pc += 2;
+        }
+    }
+
+    fn skip_if_eq(&mut self, x: u8, y: u8) {
+        if self.registers[x as usize] == self.registers[y as usize] {
+            self.pc += 2
+        }
+    }
+
     fn set_register(&mut self, x: u8, nn: u8) {
         self.registers[x as usize] = nn;
+    }
+
+    fn skip_if_neq(&mut self, x: u8, y: u8) {
+        if self.registers[x as usize] != self.registers[y as usize] {
+            self.pc += 2
+        }
     }
 
     fn add(&mut self, x: u8, nn: u8) {
@@ -156,172 +213,5 @@ impl Chip8 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn test_new_pc_at_rom_start() {
-        let chip8 = Chip8::new();
-        assert_eq!(chip8.pc, Chip8::ROM_START as u16);
-    }
-
-    #[test]
-    fn test_new_font_loaded() {
-        let chip8 = Chip8::new();
-        assert_eq!(&chip8.memory[Chip8::FONT_START..Chip8::FONT_START + 80], &Chip8::FONT);
-    }
-
-    #[test]
-    fn test_load_rom_too_large() {
-        let mut chip8 = Chip8::new();
-        let mut file = NamedTempFile::new().unwrap();
-        file.write_all(&vec![0u8; Chip8::MAX_ROM_SIZE + 1]).unwrap();
-        let result = chip8.load_rom(file.path().to_str().unwrap());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_load_rom_into_memory() {
-        let mut chip8 = Chip8::new();
-        let mut file = NamedTempFile::new().unwrap();
-        let rom_data = vec![0x12, 0x34, 0x56];
-        file.write_all(&rom_data).unwrap();
-        chip8.load_rom(file.path().to_str().unwrap()).unwrap();
-        assert_eq!(&chip8.memory[Chip8::ROM_START..Chip8::ROM_START + 3], &rom_data[..]);
-    }
-
-    #[test]
-    fn test_fetch_returns_opcode() {
-        let mut chip8 = Chip8::new();
-        chip8.memory[Chip8::ROM_START] = 0xD1;
-        chip8.memory[Chip8::ROM_START + 1] = 0x23;
-        let opcode = chip8.fetch();
-        assert_eq!(opcode, 0xD123);
-    }
-
-    #[test]
-    fn test_fetch_increments_pc() {
-        let mut chip8 = Chip8::new();
-        chip8.fetch();
-        assert_eq!(chip8.pc, Chip8::ROM_START as u16 + 2);
-    }
-
-    #[test]
-    fn test_fetch_advances_on_successive_calls() {
-        let mut chip8 = Chip8::new();
-        chip8.memory[Chip8::ROM_START] = 0xAB;
-        chip8.memory[Chip8::ROM_START + 1] = 0xCD;
-        chip8.memory[Chip8::ROM_START + 2] = 0x12;
-        chip8.memory[Chip8::ROM_START + 3] = 0x34;
-        assert_eq!(chip8.fetch(), 0xABCD);
-        assert_eq!(chip8.fetch(), 0x1234);
-    }
-
-    #[test]
-    fn test_decode_clear_screen() {
-        let mut chip8 = Chip8::new();
-        assert_eq!(chip8.decode(0x00E0), Opcode::ClearScreen);
-    }
-
-    #[test]
-    fn test_decode_jump() {
-        let mut chip8 = Chip8::new();
-        assert_eq!(chip8.decode(0x1ABC), Opcode::Jump(0xABC));
-    }
-
-    #[test]
-    fn test_decode_set_register() {
-        let mut chip8 = Chip8::new();
-        assert_eq!(chip8.decode(0x6A42), Opcode::SetRegister(0xA, 0x42));
-    }
-
-    #[test]
-    fn test_decode_add() {
-        let mut chip8 = Chip8::new();
-        assert_eq!(chip8.decode(0x7312), Opcode::Add(0x3, 0x12));
-    }
-
-    #[test]
-    fn test_decode_set_index_register() {
-        let mut chip8 = Chip8::new();
-        assert_eq!(chip8.decode(0xA123), Opcode::SetIndexRegister(0x123));
-    }
-
-    #[test]
-    fn test_decode_draw() {
-        let mut chip8 = Chip8::new();
-        assert_eq!(chip8.decode(0xD125), Opcode::Draw(0x1, 0x2, 0x5));
-    }
-
-    #[test]
-    fn test_execute_clear_screen() {
-        let mut chip8 = Chip8::new();
-        chip8.display[0][0] = true;
-        chip8.display[15][32] = true;
-        chip8.execute(Opcode::ClearScreen);
-        assert_eq!(chip8.display, [[false; 64]; 32]);
-    }
-
-    #[test]
-    fn test_execute_jump() {
-        let mut chip8 = Chip8::new();
-        chip8.execute(Opcode::Jump(0x300));
-        assert_eq!(chip8.pc, 0x300);
-    }
-
-    #[test]
-    fn test_execute_set_register() {
-        let mut chip8 = Chip8::new();
-        chip8.execute(Opcode::SetRegister(0x3, 0x42));
-        assert_eq!(chip8.registers[0x3], 0x42);
-    }
-
-    #[test]
-    fn test_execute_add() {
-        let mut chip8 = Chip8::new();
-        chip8.registers[0x2] = 0x10;
-        chip8.execute(Opcode::Add(0x2, 0x05));
-        assert_eq!(chip8.registers[0x2], 0x15);
-    }
-
-    #[test]
-    fn test_execute_set_index_register() {
-        let mut chip8 = Chip8::new();
-        chip8.execute(Opcode::SetIndexRegister(0x300));
-        assert_eq!(chip8.index, 0x300);
-    }
-
-    #[test]
-    fn test_execute_draw_sets_pixel() {
-        let mut chip8 = Chip8::new();
-        // Single row sprite: 0b10000000 = 0x80, draws one pixel at (0,0)
-        chip8.memory[0x300] = 0x80;
-        chip8.index = 0x300;
-        chip8.execute(Opcode::Draw(0, 0, 1));
-        assert!(chip8.display[0][0]);
-    }
-
-    #[test]
-    fn test_execute_draw_collision() {
-        let mut chip8 = Chip8::new();
-        chip8.memory[0x300] = 0x80;
-        chip8.index = 0x300;
-        chip8.display[0][0] = true;
-        chip8.execute(Opcode::Draw(0, 0, 1));
-        assert_eq!(chip8.registers[0xF], 1);
-        assert!(!chip8.display[0][0]); // XOR turns it off
-    }
-
-    #[test]
-    fn test_execute_draw_wraps() {
-        let mut chip8 = Chip8::new();
-        chip8.memory[0x300] = 0x80;
-        chip8.index = 0x300;
-        chip8.registers[0] = 63; // vx at edge
-        chip8.registers[1] = 0;  // vy at top
-        chip8.execute(Opcode::Draw(0, 1, 1));
-        assert!(chip8.display[0][63]);
-    }
-}
+#[path = "chip8_tests.rs"]
+mod tests;
