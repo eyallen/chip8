@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 tempfile = "3.27.0"
+rand = "0.9"
+crossterm = "0.29.0"
