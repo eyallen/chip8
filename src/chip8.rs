@@ -1,4 +1,3 @@
-use std::fs::metadata;
 use rand::Rng;
 
 pub struct Chip8 {
@@ -209,6 +208,11 @@ impl Chip8 {
         self.keys[key] = pressed;
     }
 
+    pub fn tick_timers(&mut self) {
+        if self.delay_timer > 0 { self.delay_timer -= 1; }
+        if self.sound_timer > 0 { self.sound_timer -= 1; }
+    }
+
     fn clear_screen(&mut self) { // 0x00E0
         self.display = [[false;64]; 32];
     }
@@ -289,7 +293,7 @@ impl Chip8 {
         self.registers[x as usize] = result;
     }
 
-    fn shift_right(&mut self, x: u8, y: u8) { // 0x8XY6
+    fn shift_right(&mut self, x: u8, _y: u8) { // 0x8XY6
         self.registers[0xF] = self.registers[x as usize] & 0x1;                                                                                                   
         self.registers[x as usize] >>= 1;
     }
@@ -300,7 +304,7 @@ impl Chip8 {
         self.registers[x as usize] = result;
     }
 
-    fn shift_left(&mut self, x: u8, y: u8) { // 0x8XYE
+    fn shift_left(&mut self, x: u8, _y: u8) { // 0x8XYE
         self.registers[0xF] = (self.registers[x as usize] >> 7) & 0x1;                                                                                            
         self.registers[x as usize] <<= 1; 
     }
@@ -384,9 +388,9 @@ impl Chip8 {
 
         self.registers[0xF] = 0;
 
-        for row in (0..n) {
+        for row in 0..n {
             let sprite_byte = self.memory[(self.index + row as u16) as usize];
-            for col in (0..8) {
+            for col in 0..8 {
                 let sprite_bit = (sprite_byte >> (7-col)) & 1;
                 
                 if sprite_bit == 1 {

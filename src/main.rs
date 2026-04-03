@@ -3,7 +3,7 @@ mod chip8;
 use std::time::Duration;
 
 use chip8::Chip8;
-use crossterm::event::{Event, KeyCode, KeyEventKind, poll};
+use crossterm::event::{Event, KeyCode, KeyEventKind};
 
 fn render(display: &[[bool; 64]; 32]) {
     print!("\x1B[H");
@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     chip8.load_rom(&args[1]).expect("Failed to load ROM");
 
     print!("\x1B[2J"); // clear screen once at start
+    let mut timer_tick = 0u32;
     loop {
         // Input handling
         if crossterm::event::poll(Duration::from_millis(0))? {
@@ -43,6 +44,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let opcode = chip8.decode(raw);
         chip8.execute(opcode);
         render(chip8.display());
+
+        // 60hz timer handling
+        timer_tick += 1;
+        if timer_tick >= (1000 / 5 / 60) { // every ~16ms at 5ms sleep
+            chip8.tick_timers();
+            timer_tick = 0;
+        }
 
         // Slow our render loop down
         std::thread::sleep(std::time::Duration::from_millis(5));
