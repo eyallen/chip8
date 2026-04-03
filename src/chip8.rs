@@ -77,7 +77,7 @@ impl Chip8 {
     ];
 
     pub fn new() -> Self {
-        let mut chip8 = Chip8 { registers: [0;16], memory: [0;4096], index: 0, pc: Self::ROM_START as u16, stack: [0;16], sp: 0, delay_timer: 0, sound_timer: 0, display: [[false;64]; 32] };
+        let mut chip8 = Chip8 { registers: [0;16], memory: [0;4096], index: 0, pc: Self::ROM_START as u16, stack: [0;16], sp: 0, delay_timer: 0, sound_timer: 0, display: [[false;64]; 32], keys: [false; 16] };
 
 
         // Load the default font at FONT_START
