@@ -10,7 +10,7 @@ pub struct Chip8 {
     delay_timer : u8,
     sound_timer: u8,
     display: [[bool;64]; 32],
-    keys: [bool; 16]
+    keys: [bool; 16],
 }
 
 #[derive(Debug, PartialEq)]
