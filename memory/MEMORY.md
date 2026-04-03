@@ -1,1 +1,0 @@
-- [CHIP-8 emulator project](project_chip8.md) — Rust learning project, terminal renderer, user fills in bit-shifting themselves
